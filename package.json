@@ -13,8 +13,10 @@
     "lodash": "^4.16.4",
     "mt-files-downloader": "^0.2.5",
     "multimeter": "^0.1.1",
+    "mv": "^2.1.1",
     "node-apt-get": "^0.1.1",
     "progress-bar": "^0.1.1",
+    "terminal-kit": "^0.24.30",
     "tmp": "0.0.29"
   }
 }

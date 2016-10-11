@@ -1,8 +1,10 @@
 require('events').EventEmitter.prototype._maxListeners = 100;
+const spawn = require('child_process').spawn;
 const execr = require('./exec'),
     _ = require('lodash'),
     Downloader = require('mt-files-downloader'),
     async = require('async');
+const termkit = require('terminal-kit'), term = termkit.terminal;
 var mirrors = [];
 var needroot = false;
 function geturls(packages, cb) {
@@ -37,81 +39,33 @@ function geturls(packages, cb) {
                 else next(null, infos, res[1]);
             });
         }, function (infos, dir, next) {
-            var dler = new Downloader();
-            var downloads = _.map(infos, pkg => {
-                var tmppath = require('tmp').tmpNameSync();
-                var p = dler.download(pkg.url, tmppath);
-                pkg.success = false;
-                pkg.setStatus = function (stat) {
-                    if (stat == 'error') pkg.success = false;
-                    else if (stat == 'complete') pkg.success = true;
-                }
-                p.tmppath = tmppath;
-                p.realpath = dir + pkg.name;
-                p.pkg = pkg;
-                return p;
+            const ProgressTracker = require('./progress-track');
+            var tracker = new ProgressTracker();
+            var wasEmpty = true;
+            _.each(infos, pkg => {
+                wasEmpty = false;
+                tracker.addUrl(pkg.url, dir + pkg.name, pkg);
             });
-            /*function padright(str, len) {
-                function pad(value, length) {
-                    return (value.toString().length < length) ? pad(value + " ", length) : value;
-                }
-                return pad(str, len).substring(0, len);
+            if (wasEmpty) {
+                next(null);
+                return;
             }
-            var multimeter = require('multimeter'),
-                multi = multimeter(process);
-            var height = process.stdout.getWindowSize()[1],
-                width = process.stdout.getWindowSize()[0],
-                pkgnameWidth = Math.floor(width / 4);
-            barWidth = Math.floor((width / 4) * 2);
-            yindex = 0;
-            _.each(downloads, dl => {
-                var myurl = dl.url, path = dl.filePath, pkg = dl.pkg;
-                var padname = padright(pkg.name, pkgnameWidth);
-                dl.on('start', function (dl) {
-                    var bar = multi(0, (height - 1) - (yindex++), { width: barWidth, before: padname + ' [' });
-                    dl.bar = bar;
-                });
-                dl.on('end', function (dl) {
-                    
-                });
-                dl.on('error', function(dl){
-                    console.error(dl.error);
-                })
-                dl.start();
+            tracker.on('complete', function () {
+                next(null);
             });
-            setInterval(function () {
-                _.each(downloads, dl => {
-                    if (!dl.bar) return;
-                    var charm = multi.charm;
-                    if (dl.status == 1) {
-                        var stats = dl.getStats();
-                        dl.bar.after = '] ' + Downloader.Formatters.speed(stats.present.speed) + ' ETA ' + Downloader.Formatters.remainingTime(stats.future.eta);
-                        dl.bar.percent(stats.total.completed);
-                        dl.pkg.setStatus('in-progress');
-                    } else if (dl.status == 2) {//error
-                        dl.bar.percent(0);
-                        dl.bar.after = '] RETRY';
-                        dl.bar.solid.background = 'red';
-                        dl.pkg.setStatus('error');
-                    } else if (dl.status == 3) {//complete fine
-                        dl.bar.after = '] DONE                 ';
-                        dl.bar.solid.background = 'green';
-                        dl.bar.percent(100);
-                        dl.pkg.setStatus('complete');
-                    } else if (dl.status == -2) {//stopped
-                        dl.bar.solid.background = 'red';
-                        dl.pkg.setStatus('error');
-                    } else {
-                        dl.bar.solid.background = 'cyan';
-                        dl.pkg.setStatus('unknown');
-                    }
-                });
-                if (_.every(downloads, d => d.success)) {
-
-                }
-            }, 500);*/
+            tracker.start();
+        }, function (next) {
+            /*execr('apt-get -y install ' + package, (err, stdout) => {
+                if (err) { next(err); return; }
+                next(null, stdout);
+            });*/
+            var aget = spawn('apt-get', ('-y install ' + package).split(' '));
+            aget.stdout.on('data', d => term(d.toString()));
+            aget.stderr.on('data', d => term.red(d.toString()));
+            aget.on('exit', function (code) {
+                next(code);
+            });
         }], function (err, result) {
-            if (err) console.error(err);
             cb(err, result);
         });
 }
@@ -135,40 +89,11 @@ if (process.getuid && process.getuid() !== 0) {
     process.exit();
 }
 geturls(pkgs, function (err, result) {
-
+    if (err) {
+        term.red(err.message);
+        term.processExit(result);
+    } else if (result) {
+        //term.white(result);
+        term.processExit(result);
+    }
 });
-
-/*vince@vince-lappy:/mnt/c/Users/Vince$ apt-cache show vim
-Package: vim
-Priority: optional
-Section: editors
-Installed-Size: 2185
-Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
-Original-Maintainer: Debian Vim Maintainers <pkg-vim-maintainers@lists.alioth.debian.org>
-Architecture: amd64
-Version: 2:7.4.052-1ubuntu3
-Provides: editor
-Depends: vim-common (= 2:7.4.052-1ubuntu3), vim-runtime (= 2:7.4.052-1ubuntu3), libacl1 (>= 2.2.51-8), libc6 (>= 2.15), libgpm2 (>= 1.20.4), libpython2.7 (>= 2.7), libselinux1 (>= 1.32), libtinfo5
-Suggests: ctags, vim-doc, vim-scripts
-Filename: pool/main/v/vim/vim_7.4.052-1ubuntu3_amd64.deb
-Size: 955616
-MD5sum: f870bba8885a240acb21977e22503c73
-SHA1: 038639fda5e3a73d7f26a8e1bd20faa0282c74ff
-SHA256: 1c59553660fb37a9a0317ce7a906b55d580be53e4a478c55a88da4de9f9a86b9
-Description-en: Vi IMproved - enhanced vi editor
- Vim is an almost compatible version of the UNIX editor Vi.
- .
- Many new features have been added: multi level undo, syntax
- highlighting, command line history, on-line help, filename
- completion, block operations, folding, Unicode support, etc.
- .
- This package contains a version of vim compiled with a rather
- standard set of features.  This package does not provide a GUI
- version of Vim.  See the other vim-* packages if you need more
- (or less).
-Description-md5: 59e8b8f7757db8b53566d5d119872de8
-Homepage: http://www.vim.org/
-Bugs: https://bugs.launchpad.net/ubuntu/+filebug
-Origin: Ubuntu
-Supported: 5y
-Task: ubuntu-usb, cloud-image, server, edubuntu-desktop-gnome, edubuntu-usb*/
